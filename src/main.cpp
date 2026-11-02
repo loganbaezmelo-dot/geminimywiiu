@@ -34,7 +34,7 @@ std::string ask_gemini(const std::string& prompt, const std::string& apiKey) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
     
-    // Disable strict cert verification if the Wii U root cert store complains
+    // Disable strict cert verification for Wii U testing
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
@@ -52,8 +52,17 @@ int main(int argc, char** argv) {
     WHBProcInit();
     WHBLogConsoleInit();
 
+    WHBLogPrint("=== geminimywiiu ===");
+    WHBLogPrint("Querying Gemini 3.5 Flash Lite...");
+    WHBLogConsoleDraw();
+
     std::string apiKey = "YOUR_GEMINI_API_KEY";
     std::string response = ask_gemini("Say hello to the Nintendo Wii U community!", apiKey);
+
+    WHBLogPrint("");
+    WHBLogPrint(response.c_str());
+    WHBLogPrint("");
+    WHBLogPrint("Press HOME to exit.");
 
     while (WHBProcIsRunning()) {
         VPADStatus status;
@@ -61,10 +70,6 @@ int main(int argc, char** argv) {
         VPADRead(VPAD_CHAN_0, &status, 1, &error);
 
         WHBLogConsoleDraw();
-        WHBLogConsolePrint("=== geminimywiiu ===\n\n");
-        WHBLogConsolePrint(response.c_str());
-        WHBLogConsolePrint("\n\nPress HOME to exit.");
-
         OSSleepTicks(OSMillisecondsToTicks(100));
     }
 
