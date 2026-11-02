@@ -25,9 +25,7 @@ jobs:
       - name: Build WUHB
         run: |
           mkdir build && cd build
-          cmake .. \
-            -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/wut/share/wut.toolchain.cmake \
-            -DCMAKE_PREFIX_PATH="/opt/devkitpro/wut;/opt/devkitpro/portlibs/wiiu"
+          /opt/devkitpro/portlibs/wiiu/bin/powerpc-eabi-cmake ..
           make
 
       - name: Upload Artifact
