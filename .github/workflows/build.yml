@@ -20,12 +20,9 @@ jobs:
         run: |
           sudo dkp-pacman -Syu --noconfirm
           sudo dkp-pacman -S --noconfirm \
-            wut \
-            wiiu-pkg-config \
-            ppc-curl \
-            ppc-mbedtls \
-            ppc-zlib \
-            wuhbtool
+            wiiu-dev \
+            wiiu-curl \
+            wiiu-wuhbtool
 
       - name: Build WUHB
         run: |
