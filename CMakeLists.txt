@@ -1,4 +1,17 @@
 cmake_minimum_required(VERSION 3.13)
+
+# Allow CMake to honor WUT_ROOT from devkitPro environment
+if(POLICY CMP0144)
+    cmake_policy(SET CMP0144 NEW)
+endif()
+
+# Fallback: explicitly point CMake to WUT config if env variable exists
+if(DEFINED ENV{WUT_ROOT})
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{WUT_ROOT}")
+elseif(DEFINED ENV{DEVKITPRO})
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{DEVKITPRO}/wut")
+endif()
+
 project(geminimywiiu C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
