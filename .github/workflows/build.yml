@@ -21,8 +21,7 @@ jobs:
           sudo dkp-pacman -Syu --noconfirm
           sudo dkp-pacman -S --noconfirm \
             wiiu-dev \
-            wiiu-curl \
-            wiiu-wuhbtool
+            wiiu-curl
 
       - name: Build WUHB
         run: |
