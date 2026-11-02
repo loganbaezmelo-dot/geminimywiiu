@@ -1,33 +1,39 @@
 cmake_minimum_required(VERSION 3.13)
+cmake_policy(SET CMP0144 NEW)
+
 project(geminimywiiu C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(wut REQUIRED)
-find_package(CURL REQUIRED)
-find_package(MbedTLS REQUIRED)
+# Point cmake to wut's custom cmake modules
+list(APPEND CMAKE_MODULE_PATH "/opt/devkitpro/wut/share/wut/cmake")
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CURL REQUIRED libcurl)
 
 add_executable(geminimywiiu
     src/main.cpp
 )
 
 target_include_directories(geminimywiiu PRIVATE
-    ${WUT_INCLUDE_DIRS}
     ${CURL_INCLUDE_DIRS}
+    /opt/devkitpro/wut/include
 )
 
+target_link_directories(geminimywiiu PRIVATE
+    /opt/devkitpro/wut/lib
+    ${CURL_LIBRARY_DIRS}
+)
+
+# Link wut, curl, and networking/crypto libs
 target_link_libraries(geminimywiiu PRIVATE
-    wut::core
+    -lwut
     ${CURL_LIBRARIES}
-    ${MBEDTLS_LIBRARIES}
-    -lssl -lcrypto -lz
+    -lmbedtls -lmbedx509 -lmbedcrypto -lz
 )
 
-# Bundle into WUHB for Aroma
+# Package into WUHB
 wut_create_wuhb(geminimywiiu
     NAME "geminimywiiu"
     AUTHOR "Logan"
-    ICON "${CMAKE_SOURCE_DIR}/icon.png"
-    TV_IMAGE "${CMAKE_SOURCE_DIR}/tv.png"
-    DRC_IMAGE "${CMAKE_SOURCE_DIR}/drc.png"
 )
