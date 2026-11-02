@@ -5,9 +5,6 @@ project(geminimywiiu C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# Point cmake to wut's custom cmake modules
-list(APPEND CMAKE_MODULE_PATH "/opt/devkitpro/wut/share/wut/cmake")
-
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(CURL REQUIRED libcurl)
 
@@ -25,14 +22,16 @@ target_link_directories(geminimywiiu PRIVATE
     ${CURL_LIBRARY_DIRS}
 )
 
-# Link wut, curl, and networking/crypto libs
 target_link_libraries(geminimywiiu PRIVATE
     -lwut
     ${CURL_LIBRARIES}
     -lmbedtls -lmbedx509 -lmbedcrypto -lz
 )
 
-# Package into WUHB
+# 1. Convert raw executable into a Cafe OS .rpx binary
+wut_create_rpx(geminimywiiu)
+
+# 2. Package the .rpx into an Aroma .wuhb bundle
 wut_create_wuhb(geminimywiiu
     NAME "geminimywiiu"
     AUTHOR "Logan"
