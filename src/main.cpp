@@ -1,5 +1,6 @@
 #include <coreinit/core.h>
 #include <coreinit/screen.h>
+#include <coreinit/time.h>
 #include <whb/proc.h>
 #include <whb/log.h>
 #include <whb/log_console.h>
@@ -12,6 +13,8 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cstring>
+#include <cstdlib>
 
 // Memory buffer for curl responses
 struct MemoryStruct {
@@ -53,7 +56,6 @@ std::string load_api_key() {
 
 // Bring up the official Wii U software keyboard
 std::string get_user_prompt() {
-    // Allocate work memory required by the software keyboard
     size_t kbdWorkSize = nn::swkbd::GetWorkMemorySize(0);
     void *kbdWorkMem = malloc(kbdWorkSize);
     if (!kbdWorkMem) return "";
@@ -64,24 +66,15 @@ std::string get_user_prompt() {
     nn::swkbd::Create(createArg);
 
     nn::swkbd::AppearArg appearArg;
-    nn::swkbd::KeyboardArg &kArg = appearArg.keyboardArg;
-    
-    // Configure standard full keyboard with predictive dictionary
-    kArg.configArg.keyboardMode = nn::swkbd::KeyboardMode::Full;
-    kArg.configArg.languageType = nn::swkbd::LanguageType::English;
-
-    // Set initial hints & button labels
-    std::u16string hint = u"Ask Gemini anything...";
-    std::u16string okBtn = u"Send";
-    kArg.configArg.hintText = (const char16_t*)hint.c_str();
-    kArg.configArg.okText = (const char16_t*)okBtn.c_str();
+    appearArg.keyboardArg.configArg.keyboardMode = nn::swkbd::KeyboardMode::Full;
+    appearArg.keyboardArg.configArg.languageType = nn::swkbd::LanguageType::English;
 
     nn::swkbd::AppearInputForm(appearArg);
 
     std::string resultStr = "";
     bool running = true;
 
-    while (running && WHBProcessIsRunning()) {
+    while (running && WHBProcIsRunning()) {
         VPADStatus vpad;
         VPADReadError vErr;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &vErr);
@@ -91,11 +84,10 @@ std::string get_user_prompt() {
 
         nn::swkbd::Calc(cInfo);
 
-        // When the user taps 'Send' on screen
+        // When user taps OK / Enter on the GamePad
         if (nn::swkbd::IsDecideOkButton(nullptr)) {
             const char16_t *resU16 = nn::swkbd::GetInputFormString();
             if (resU16) {
-                // Convert UTF-16 to UTF-8
                 std::u16string u16str(resU16);
                 for (char16_t c : u16str) {
                     if (c < 0x80) {
@@ -110,7 +102,6 @@ std::string get_user_prompt() {
             running = false;
         }
 
-        // Draw the keyboard frame to the GamePad
         nn::swkbd::DrawTV();
         nn::swkbd::DrawDRC();
     }
@@ -126,58 +117,56 @@ int main(int argc, char **argv) {
     WHBProcInit();
     WHBLogConsoleInit();
 
-    WHBLogConsoleSetColor(0x000000FF, 0xFFFFFFFF); // Clean black & white console
+    WHBLogConsoleSetColor(0x000000FF);
     WHBLogPrintf("=== geminimywiiu ===");
-    WHBLogPrintf("Press (A) on GamePad to type a prompt");
+    WHBLogPrintf("Press (A) on GamePad to ask Gemini");
     WHBLogPrintf("Press (HOME) to exit");
     WHBLogConsoleDraw();
 
     std::string apiKey = load_api_key();
     if (apiKey.empty()) {
         WHBLogPrintf("\nWarning: api_key.txt not found in app folder!");
-        WHBLogPrintf("Create sd:/wiiu/apps/geminimywiiu/api_key.txt");
+        WHBLogPrintf("Place it at sd:/wiiu/apps/geminimywiiu/api_key.txt");
         WHBLogConsoleDraw();
     }
 
-    CURLcode curlInitRes = curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    while (WHBProcessIsRunning()) {
+    while (WHBProcIsRunning()) {
         VPADStatus status;
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &status, 1, &error);
 
-        // Tap (A) to pop open the keyboard
+        // Tap (A) on the GamePad
         if (status.trigger & VPAD_BUTTON_A) {
-            WHBLogConsoleClear();
-            WHBLogPrintf("Opening Wii U GamePad Keyboard...");
+            WHBLogPrintf("\nOpening GamePad Keyboard...");
             WHBLogConsoleDraw();
 
             std::string userPrompt = get_user_prompt();
 
-            // Re-render console screen once keyboard closes
-            WHBLogConsoleClear();
-            WHBLogPrintf("=== geminimywiiu ===");
-
             if (userPrompt.empty()) {
-                WHBLogPrintf("Prompt cancelled. Press (A) to try again.");
+                WHBLogPrintf("\nPrompt cancelled. Press (A) to try again.");
                 WHBLogConsoleDraw();
                 continue;
             }
 
-            WHBLogPrintf("Prompt: %s", userPrompt.c_str());
-            WHBLogPrintf("\nQuerying Gemini 3.5 Flash Lite...");
+            WHBLogPrintf("\nYou: %s", userPrompt.c_str());
+            WHBLogPrintf("Querying Gemini 3.5 Flash Lite...");
             WHBLogConsoleDraw();
 
             if (apiKey.empty()) {
-                WHBLogPrintf("\nError: Missing API Key! Add api_key.txt to SD card.");
-                WHBLogConsoleDraw();
-                continue;
+                apiKey = load_api_key(); // Retry loading in case it was uploaded while running
+                if (apiKey.empty()) {
+                    WHBLogPrintf("\nError: Missing API Key! Add api_key.txt to SD card.");
+                    WHBLogConsoleDraw();
+                    continue;
+                }
             }
 
-            // Build request URL
-            std::string url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=" + apiKey;
+            // Using gemini-3.5-flash-lite endpoint
+            std::string url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=" + apiKey;
 
-            // Simple JSON escaping for prompt
+            // Escape quotes and newlines for the JSON payload
             std::string cleanPrompt = "";
             for (char c : userPrompt) {
                 if (c == '"') cleanPrompt += "\\\"";
@@ -207,7 +196,7 @@ int main(int argc, char **argv) {
                 if (res != CURLE_OK) {
                     WHBLogPrintf("\nCurl failed: %s", curl_easy_strerror(res));
                 } else {
-                    WHBLogPrintf("\n%s", chunk.memory);
+                    WHBLogPrintf("\n%s\n", chunk.memory);
                 }
 
                 curl_slist_free_all(headers);
@@ -215,7 +204,7 @@ int main(int argc, char **argv) {
                 curl_easy_cleanup(curl);
             }
 
-            WHBLogPrintf("\nPress (A) to ask another, or (HOME) to exit.");
+            WHBLogPrintf("\nPress (A) to ask again, or (HOME) to exit.");
             WHBLogConsoleDraw();
         }
 
