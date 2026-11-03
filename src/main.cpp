@@ -15,6 +15,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <unistd.h>
+#include <algorithm>
 
 // Memory buffer for curl responses
 struct MemoryStruct {
@@ -54,6 +55,104 @@ std::string load_api_key() {
     return "";
 }
 
+// Quick JSON parser to pull the assistant text response
+std::string extract_gemini_text(const std::string &rawJson) {
+    std::string needle = "\"text\": \"";
+    size_t pos = rawJson.find(needle);
+    if (pos == std::string::npos) {
+        return rawJson; // fallback to raw string if it's an error message
+    }
+
+    pos += needle.length();
+    std::string result = "";
+    bool escaped = false;
+
+    for (size_t i = pos; i < rawJson.length(); ++i) {
+        char c = rawJson[i];
+        if (escaped) {
+            if (c == 'n') result += '\n';
+            else if (c == 'r') result += '\r';
+            else if (c == 't') result += '\t';
+            else if (c == '"') result += '"';
+            else if (c == '\\') result += '\\';
+            else { result += '\\'; result += c; }
+            escaped = false;
+        } else if (c == '\\') {
+            escaped = true;
+        } else if (c == '"') {
+            break; // reached end of text token
+        } else {
+            result += c;
+        }
+    }
+    return result;
+}
+
+// Scrollable chat state
+std::vector<std::string> g_chat_lines;
+int g_scroll_offset = 0;
+const int VISIBLE_LINES = 16;
+const size_t LINE_WIDTH = 64;
+
+void add_message(const std::string &sender, const std::string &text) {
+    g_chat_lines.push_back("[" + sender + "]");
+
+    std::istringstream stream(text);
+    std::string rawLine;
+    while (std::getline(stream, rawLine)) {
+        if (!rawLine.empty() && rawLine.back() == '\r') {
+            rawLine.pop_back();
+        }
+
+        if (rawLine.empty()) {
+            g_chat_lines.push_back("");
+            continue;
+        }
+
+        while (rawLine.length() > LINE_WIDTH) {
+            size_t breakPos = rawLine.rfind(' ', LINE_WIDTH);
+            if (breakPos == std::string::npos || breakPos < 20) {
+                breakPos = LINE_WIDTH;
+            }
+            g_chat_lines.push_back("  " + rawLine.substr(0, breakPos));
+            size_t nextPos = (rawLine[breakPos] == ' ') ? breakPos + 1 : breakPos;
+            rawLine = rawLine.substr(nextPos);
+        }
+        g_chat_lines.push_back("  " + rawLine);
+    }
+
+    g_chat_lines.push_back("--------------------------------------------------");
+
+    // Auto-scroll down to latest response
+    if ((int)g_chat_lines.size() > VISIBLE_LINES) {
+        g_scroll_offset = (int)g_chat_lines.size() - VISIBLE_LINES;
+    } else {
+        g_scroll_offset = 0;
+    }
+}
+
+void render_screen(const std::string &status_bar = "") {
+    WHBLogConsoleFree();
+    WHBLogConsoleInit();
+    WHBLogConsoleSetColor(0x000000FF);
+
+    WHBLogPrintf("=== geminimywiiu | D-Pad: Scroll | (A): Ask | (HOME): Exit ===");
+
+    if (!status_bar.empty()) {
+        WHBLogPrintf(">> %s", status_bar.c_str());
+    }
+
+    int totalLines = (int)g_chat_lines.size();
+    int start = g_scroll_offset;
+    int end = std::min(totalLines, start + VISIBLE_LINES);
+
+    for (int i = start; i < end; ++i) {
+        WHBLogPrintf("%s", g_chat_lines[i].c_str());
+    }
+
+    WHBLogConsoleDraw();
+}
+
 // Bring up the official Wii U software keyboard
 std::string get_user_prompt() {
     size_t kbdWorkSize = nn::swkbd::GetWorkMemorySize(0);
@@ -84,7 +183,6 @@ std::string get_user_prompt() {
 
         nn::swkbd::Calc(cInfo);
 
-        // When user taps OK / Enter on the GamePad
         if (nn::swkbd::IsDecideOkButton(nullptr)) {
             const char16_t *resU16 = nn::swkbd::GetInputFormString();
             if (resU16) {
@@ -116,19 +214,15 @@ std::string get_user_prompt() {
 int main(int argc, char **argv) {
     WHBProcInit();
     WHBLogConsoleInit();
-
     WHBLogConsoleSetColor(0x000000FF);
-    WHBLogPrintf("=== geminimywiiu ===");
-    WHBLogPrintf("Press (A) on GamePad to ask Gemini");
-    WHBLogPrintf("Press (HOME) to exit");
-    WHBLogConsoleDraw();
 
     std::string apiKey = load_api_key();
     if (apiKey.empty()) {
-        WHBLogPrintf("\nWarning: api_key.txt not found in app folder!");
-        WHBLogPrintf("Place it at sd:/wiiu/apps/geminimywiiu/api_key.txt");
-        WHBLogConsoleDraw();
+        add_message("System", "Warning: api_key.txt not found! Put it at sd:/wiiu/apps/geminimywiiu/api_key.txt");
+    } else {
+        add_message("System", "Ready! Press (A) to ask Gemini 3.5 Flash Lite.");
     }
+    render_screen();
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
@@ -137,28 +231,44 @@ int main(int argc, char **argv) {
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &status, 1, &error);
 
-        // Tap (A) on the GamePad
+        bool needs_render = false;
+
+        // D-Pad Up: Scroll back up
+        if ((status.hold & VPAD_BUTTON_UP) && g_scroll_offset > 0) {
+            g_scroll_offset--;
+            needs_render = true;
+        }
+
+        // D-Pad Down: Scroll down toward latest
+        if ((status.hold & VPAD_BUTTON_DOWN) && (g_scroll_offset + VISIBLE_LINES < (int)g_chat_lines.size())) {
+            g_scroll_offset++;
+            needs_render = true;
+        }
+
+        if (needs_render) {
+            render_screen();
+            usleep(30000); // smooth scrolling rate
+            continue;
+        }
+
+        // Tap (A) on GamePad to trigger keyboard
         if (status.trigger & VPAD_BUTTON_A) {
-            WHBLogPrintf("\nOpening GamePad Keyboard...");
-            WHBLogConsoleDraw();
+            render_screen("Opening Keyboard on GamePad...");
 
             std::string userPrompt = get_user_prompt();
-
             if (userPrompt.empty()) {
-                WHBLogPrintf("\nPrompt cancelled. Press (A) to try again.");
-                WHBLogConsoleDraw();
+                render_screen("Cancelled.");
                 continue;
             }
 
-            WHBLogPrintf("\nYou: %s", userPrompt.c_str());
-            WHBLogPrintf("Querying Gemini 3.5 Flash Lite...");
-            WHBLogConsoleDraw();
+            add_message("You", userPrompt);
+            render_screen("Thinking (Querying Gemini 3.5 Flash Lite)...");
 
             if (apiKey.empty()) {
                 apiKey = load_api_key();
                 if (apiKey.empty()) {
-                    WHBLogPrintf("\nError: Missing API Key! Add api_key.txt to SD card.");
-                    WHBLogConsoleDraw();
+                    add_message("System", "Error: Missing API Key in api_key.txt!");
+                    render_screen();
                     continue;
                 }
             }
@@ -192,9 +302,10 @@ int main(int argc, char **argv) {
 
                 CURLcode res = curl_easy_perform(curl);
                 if (res != CURLE_OK) {
-                    WHBLogPrintf("\nCurl failed: %s", curl_easy_strerror(res));
+                    add_message("Error", curl_easy_strerror(res));
                 } else {
-                    WHBLogPrintf("\n%s\n", chunk.memory);
+                    std::string parsedText = extract_gemini_text(chunk.memory);
+                    add_message("Gemini", parsedText);
                 }
 
                 curl_slist_free_all(headers);
@@ -202,11 +313,10 @@ int main(int argc, char **argv) {
                 curl_easy_cleanup(curl);
             }
 
-            WHBLogPrintf("\nPress (A) to ask again, or (HOME) to exit.");
-            WHBLogConsoleDraw();
+            render_screen();
         }
 
-        usleep(50000);
+        usleep(40000);
     }
 
     curl_global_cleanup();
