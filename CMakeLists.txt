@@ -25,10 +25,9 @@ target_link_directories(geminimywiiu PRIVATE
     ${CURL_LIBRARY_DIRS}
 )
 
-# Link wut, swkbd, curl static chain, brotli decoder, mbedtls, and zlib
+# -lwut already contains all nn::* symbols including swkbd!
 target_link_libraries(geminimywiiu PRIVATE
     -lwut
-    -lswkbd
     ${CURL_STATIC_LIBRARIES}
     ${CURL_LIBRARIES}
     -lbrotlidec -lbrotlicommon
