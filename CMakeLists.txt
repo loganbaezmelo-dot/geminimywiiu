@@ -28,7 +28,7 @@ target_link_directories(geminimywiiu PRIVATE
 # Link wut, swkbd, curl static chain, brotli decoder, mbedtls, and zlib
 target_link_libraries(geminimywiiu PRIVATE
     -lwut
-    -lnn_swkbd
+    -lswkbd
     ${CURL_STATIC_LIBRARIES}
     ${CURL_LIBRARIES}
     -lbrotlidec -lbrotlicommon
