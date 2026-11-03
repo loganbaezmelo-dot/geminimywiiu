@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <algorithm>
+#include <malloc.h>
 
 // Memory buffer for curl responses
 struct MemoryStruct {
@@ -60,7 +61,7 @@ std::string extract_gemini_text(const std::string &rawJson) {
     std::string needle = "\"text\": \"";
     size_t pos = rawJson.find(needle);
     if (pos == std::string::npos) {
-        return rawJson; // fallback to raw string if it's an error message
+        return rawJson;
     }
 
     pos += needle.length();
@@ -80,7 +81,7 @@ std::string extract_gemini_text(const std::string &rawJson) {
         } else if (c == '\\') {
             escaped = true;
         } else if (c == '"') {
-            break; // reached end of text token
+            break;
         } else {
             result += c;
         }
@@ -153,18 +154,31 @@ void render_screen(const std::string &status_bar = "") {
     WHBLogConsoleDraw();
 }
 
-// Bring up the official Wii U software keyboard
+// Bring up the official Wii U software keyboard safely
 std::string get_user_prompt() {
+    // 1. Release console display to prevent frame buffer collisions
+    WHBLogConsoleFree();
+
     size_t kbdWorkSize = nn::swkbd::GetWorkMemorySize(0);
-    void *kbdWorkMem = malloc(kbdWorkSize);
-    if (!kbdWorkMem) return "";
+    void *kbdWorkMem = memalign(4096, kbdWorkSize);
+    if (!kbdWorkMem) {
+        WHBLogConsoleInit();
+        return "";
+    }
 
     nn::swkbd::CreateArg createArg;
+    memset(&createArg, 0, sizeof(createArg));
     createArg.workMemory = kbdWorkMem;
     createArg.regionType = nn::swkbd::RegionType::USA;
-    nn::swkbd::Create(createArg);
+
+    if (!nn::swkbd::Create(createArg)) {
+        free(kbdWorkMem);
+        WHBLogConsoleInit();
+        return "";
+    }
 
     nn::swkbd::AppearArg appearArg;
+    memset(&appearArg, 0, sizeof(appearArg));
     appearArg.keyboardArg.configArg.keyboardMode = nn::swkbd::KeyboardMode::Full;
     appearArg.keyboardArg.configArg.languageType = nn::swkbd::LanguageType::English;
 
@@ -179,6 +193,7 @@ std::string get_user_prompt() {
         VPADRead(VPAD_CHAN_0, &vpad, 1, &vErr);
 
         nn::swkbd::ControllerInfo cInfo;
+        memset(&cInfo, 0, sizeof(cInfo));
         cInfo.vpad = &vpad;
 
         nn::swkbd::Calc(cInfo);
@@ -188,11 +203,8 @@ std::string get_user_prompt() {
             if (resU16) {
                 std::u16string u16str(resU16);
                 for (char16_t c : u16str) {
-                    if (c < 0x80) {
-                        resultStr += (char)c;
-                    } else {
-                        resultStr += '?';
-                    }
+                    if (c < 0x80) resultStr += (char)c;
+                    else resultStr += '?';
                 }
             }
             running = false;
@@ -202,11 +214,18 @@ std::string get_user_prompt() {
 
         nn::swkbd::DrawTV();
         nn::swkbd::DrawDRC();
+
+        OSScreenFlipBuffersEx(SCREEN_TV);
+        OSScreenFlipBuffersEx(SCREEN_DRC);
     }
 
     nn::swkbd::DisappearInputForm();
     nn::swkbd::Destroy();
     free(kbdWorkMem);
+
+    // 2. Re-establish console display
+    WHBLogConsoleInit();
+    WHBLogConsoleSetColor(0x000000FF);
 
     return resultStr;
 }
@@ -247,7 +266,7 @@ int main(int argc, char **argv) {
 
         if (needs_render) {
             render_screen();
-            usleep(30000); // smooth scrolling rate
+            usleep(30000);
             continue;
         }
 
