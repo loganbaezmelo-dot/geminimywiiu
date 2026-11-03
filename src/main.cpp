@@ -1,6 +1,5 @@
 #include <coreinit/core.h>
 #include <coreinit/screen.h>
-#include <coreinit/time.h>
 #include <whb/proc.h>
 #include <whb/log.h>
 #include <whb/log_console.h>
@@ -15,6 +14,7 @@
 #include <sstream>
 #include <cstring>
 #include <cstdlib>
+#include <unistd.h>
 
 // Memory buffer for curl responses
 struct MemoryStruct {
@@ -155,7 +155,7 @@ int main(int argc, char **argv) {
             WHBLogConsoleDraw();
 
             if (apiKey.empty()) {
-                apiKey = load_api_key(); // Retry loading in case it was uploaded while running
+                apiKey = load_api_key();
                 if (apiKey.empty()) {
                     WHBLogPrintf("\nError: Missing API Key! Add api_key.txt to SD card.");
                     WHBLogConsoleDraw();
@@ -163,10 +163,8 @@ int main(int argc, char **argv) {
                 }
             }
 
-            // Using gemini-3.5-flash-lite endpoint
             std::string url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=" + apiKey;
 
-            // Escape quotes and newlines for the JSON payload
             std::string cleanPrompt = "";
             for (char c : userPrompt) {
                 if (c == '"') cleanPrompt += "\\\"";
@@ -208,7 +206,7 @@ int main(int argc, char **argv) {
             WHBLogConsoleDraw();
         }
 
-        OSSleepTicks(OSMillisecondsToTicks(50));
+        usleep(50000);
     }
 
     curl_global_cleanup();
